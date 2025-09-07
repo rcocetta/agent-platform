@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 # Set test environment variables
 os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test-key"
+os.environ["SECRET_KEY"] = "test-secret-key-for-development-only"
 os.environ["ENVIRONMENT"] = "testing"
 os.environ["DEBUG"] = "true"
 
@@ -74,6 +75,14 @@ def sample_booking():
         end_time=datetime(2025, 9, 8, 14, 30),
         confirmation_code="TEST123"
     )
+
+@pytest.fixture(autouse=True)
+def reset_session_state():
+    """Reset session state between tests"""
+    from app.api.session import sessions
+    sessions.clear()
+    yield
+    sessions.clear()
 
 @pytest.fixture
 def mock_settings():

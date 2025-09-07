@@ -1,13 +1,18 @@
 """
 Chat API endpoints
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from app.core.schemas import ChatRequest, ChatResponse, Message, MessageRole
 from app.graphs.simple_appointment_graph import SimpleAppointmentGraph
 from app.api.session import create_session, add_message_to_session
 import uuid
 from datetime import datetime
 import logging
+
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -20,20 +25,24 @@ except Exception as e:
     appointment_graph = None
 
 @router.post("/chat", response_model=ChatResponse)
-async def process_chat(request: ChatRequest):
+@limiter.limit("10/minute")  # Prevent API abuse and cost explosion
+async def process_chat(request: Request, chat_request: ChatRequest):
     """
     Process a chat message using the appointment booking agent
     """
     try:
+        # Get client IP for session management
+        client_ip = get_remote_address(request)
+        
         # Create session if not provided
-        session_id = request.session_id or create_session()
+        session_id = chat_request.session_id or create_session(client_ip)
         
         # Create user message
         user_message = Message(
             role=MessageRole.USER,
-            content=request.message,
+            content=chat_request.message,
             timestamp=datetime.utcnow(),
-            metadata=request.metadata
+            metadata=chat_request.metadata
         )
         
         # Add user message to session
@@ -49,8 +58,8 @@ async def process_chat(request: ChatRequest):
             try:
                 # Run the graph synchronously
                 result = appointment_graph.run(
-                    message=request.message,
-                    user_id=request.user_id,
+                    message=chat_request.message,
+                    user_id=chat_request.user_id,
                     session_id=session_id
                 )
                 
@@ -65,7 +74,8 @@ async def process_chat(request: ChatRequest):
                 actions_taken = result.get("actions_taken", [])
                     
             except Exception as e:
-                logger.error(f"Error processing chat request: {e}")
+                # Log error without exposing user data
+                logger.error(f"Error processing chat request: {type(e).__name__} - {str(e)[:100]}")
                 response_text = "I encountered an error while processing your request. Please try again."
                 actions_taken = ["error"]
         
@@ -84,8 +94,8 @@ async def process_chat(request: ChatRequest):
             response=response_text,
             session_id=session_id,
             metadata={
-                "channel": request.channel,
-                "user_id": request.user_id
+                "channel": chat_request.channel,
+                "user_id": chat_request.user_id
             },
             actions_taken=actions_taken
         )
@@ -93,6 +103,7 @@ async def process_chat(request: ChatRequest):
         return response
         
     except Exception as e:
-        logger.error(f"Unexpected error in chat endpoint: {e}")
+        # Log error without exposing sensitive data
+        logger.error(f"Unexpected error in chat endpoint: {type(e).__name__} - {str(e)[:100]}")
         raise HTTPException(status_code=500, detail="Internal server error")
 

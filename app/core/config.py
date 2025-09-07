@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     
     # Auth
-    secret_key: str = "your-secret-key-change-in-production"
+    secret_key: str  # Required - no default value for security
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     

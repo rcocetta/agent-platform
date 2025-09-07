@@ -7,6 +7,9 @@ from langchain.prompts import ChatPromptTemplate
 from app.core.config import settings
 from app.tools.appointment_tools import ALL_TOOLS
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SimpleAppointmentGraph:
     def __init__(self):
@@ -137,7 +140,8 @@ class SimpleAppointmentGraph:
                 "intent": intent,
                 "entities": entities
             }
-        except:
+        except Exception as e:
+            logger.error(f"Error parsing intent: {type(e).__name__}: {str(e)}")
             return {"intent": "unknown", "entities": {}}
     
     def search_providers(self, entities: Dict[str, Any]) -> list:
@@ -166,15 +170,24 @@ class SimpleAppointmentGraph:
         slots = json.loads(result)
         return [s for s in slots if s["available"]][:3]  # Top 3 slots
     
-    def create_booking(self, provider: Dict[str, Any], slot: Dict[str, Any]) -> Dict[str, Any]:
+    def create_booking(self, provider: Dict[str, Any], slot: Dict[str, Any], customer_data: Dict[str, str] = None) -> Dict[str, Any]:
         """Create a booking"""
+        # Use provided customer data or require it to be passed in
+        if customer_data is None:
+            logger.warning("No customer data provided for booking - using mock data for testing")
+            customer_data = {
+                "name": "Test User",
+                "email": "test@example.com",
+                "phone": "+33600000000"
+            }
+        
         booking_tool = self.tools[2]  # CreateBookingTool
         result = booking_tool._run(
             provider_id=provider["id"],
             service_id=provider["services"][0]["id"],
             slot_id=slot["id"],
-            customer_name="User Name",
-            customer_email="user@example.com", 
-            customer_phone="+33600000000"
+            customer_name=customer_data.get("name", "Anonymous User"),
+            customer_email=customer_data.get("email", "anonymous@example.com"), 
+            customer_phone=customer_data.get("phone", "+33000000000")
         )
         return json.loads(result)
