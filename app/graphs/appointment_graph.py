@@ -4,7 +4,7 @@ LangGraph workflow for appointment booking
 from langgraph.graph import StateGraph, END
 from langchain_anthropic import ChatAnthropic
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.tools import ToolException
+from langchain_core.tools import ToolException
 from typing import Dict, Any, List
 import json
 from app.core.schemas import AgentState, Message, MessageRole
@@ -62,9 +62,10 @@ class AppointmentGraph:
         
         return workflow
     
-    async def parse_intent(self, state: AgentState) -> Dict[str, Any]:
+    def parse_intent(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Parse user intent from the message"""
-        last_message = state.messages[-1].content if state.messages else ""
+        messages = state.get("messages", [])
+        last_message = messages[-1].content if messages else ""
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an appointment booking assistant. 
@@ -84,21 +85,21 @@ class AppointmentGraph:
             ("user", last_message)
         ])
         
-        response = await self.llm.ainvoke(prompt.format_messages())
-        
         try:
+            # Use sync invoke instead of async
+            response = self.llm.invoke(prompt.format_messages())
             extracted = json.loads(response.content)
-            state.current_intent = extracted.get("intent", "unknown")
-            state.extracted_entities = extracted
-        except:
-            state.current_intent = "unknown"
-            state.extracted_entities = {}
+            current_intent = extracted.get("intent", "unknown")
+            extracted_entities = extracted
+        except Exception as e:
+            current_intent = "unknown"
+            extracted_entities = {}
         
-        return {"current_intent": state.current_intent, "extracted_entities": state.extracted_entities}
+        return {"current_intent": current_intent, "extracted_entities": extracted_entities}
     
-    def route_intent(self, state: AgentState) -> str:
+    def route_intent(self, state: Dict[str, Any]) -> str:
         """Route based on parsed intent"""
-        intent = state.current_intent
+        intent = state.get("current_intent", "unknown")
         if intent in ["search", "book"]:
             return "search"
         elif intent == "check":
@@ -106,91 +107,98 @@ class AppointmentGraph:
         else:
             return "unknown"
     
-    async def search_providers(self, state: AgentState) -> Dict[str, Any]:
+    def search_providers(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Search for service providers"""
-        entities = state.extracted_entities
+        entities = state.get("extracted_entities", {})
         service_type = entities.get("service", "haircut")
         location = entities.get("location", "Antibes")
         
         # Use the search tool
         search_tool = self.tools[0]  # SearchProvidersTool
-        result = await search_tool.arun(
+        result = search_tool._run(
             service_type=service_type,
             location=location
         )
         
         providers = json.loads(result)
-        state.search_results = providers
         
-        # Add to messages
-        state.messages.append(Message(
+        # Create updated messages list
+        messages = state.get("messages", [])
+        messages.append(Message(
             role=MessageRole.ASSISTANT,
             content=f"Found {len(providers)} providers in {location}"
         ))
         
-        return {"search_results": providers, "messages": state.messages}
+        return {"search_results": providers, "messages": messages}
     
-    async def get_availability(self, state: AgentState) -> Dict[str, Any]:
+    def get_availability(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Get availability for the first provider"""
-        if not state.search_results:
-            return state
+        search_results = state.get("search_results", [])
+        if not search_results:
+            return {}
         
-        provider = state.search_results[0]
+        provider = search_results[0]
         service = provider["services"][0] if provider["services"] else None
         
         if not service:
-            return state
+            return {}
         
         # Use the availability tool
+        from datetime import datetime, timedelta
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
         availability_tool = self.tools[1]  # GetAvailabilityTool
-        result = await availability_tool.arun(
+        result = availability_tool._run(
             provider_id=provider["id"],
             service_id=service["id"],
-            date="2024-11-10"  # Tomorrow - would be dynamic in production
+            date=tomorrow
         )
         
         slots = json.loads(result)
         available_slots = [s for s in slots if s["available"]][:3]  # Top 3 slots
-        state.available_slots = available_slots
         
         return {"available_slots": available_slots}
     
-    async def check_calendar(self, state: AgentState) -> Dict[str, Any]:
+    def check_calendar(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Check user's calendar"""
-        if not state.available_slots:
-            return state
+        available_slots = state.get("available_slots", [])
+        if not available_slots:
+            return {}
         
         # Use calendar check tool
         calendar_tool = self.tools[3]  # CheckCalendarTool
-        slot = state.available_slots[0]
+        slot = available_slots[0]
+        user_id = state.get("user_id", "default_user")
         
-        result = await calendar_tool.arun(
+        result = calendar_tool._run(
             start_time=slot["start_time"],
             end_time=slot["end_time"],
-            user_id=state.user_id
+            user_id=user_id
         )
         
         calendar_check = json.loads(result)
         
-        if not calendar_check["available"]:
-            # Try next slot
-            if len(state.available_slots) > 1:
-                state.available_slots = state.available_slots[1:]
+        # If not available, try next slot
+        if not calendar_check["available"] and len(available_slots) > 1:
+            available_slots = available_slots[1:]
         
-        return state
+        return {"available_slots": available_slots}
     
-    async def create_booking(self, state: AgentState) -> Dict[str, Any]:
+    def create_booking(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Create the booking"""
-        if not state.available_slots or not state.search_results:
-            return state
+        available_slots = state.get("available_slots", [])
+        search_results = state.get("search_results", [])
         
-        provider = state.search_results[0]
+        if not available_slots or not search_results:
+            return {}
+        
+        provider = search_results[0]
         service = provider["services"][0]
-        slot = state.available_slots[0]
+        slot = available_slots[0]
         
         # Use booking tool
         booking_tool = self.tools[2]  # CreateBookingTool
-        result = await booking_tool.arun(
+        result = booking_tool._run(
             provider_id=provider["id"],
             service_id=service["id"],
             slot_id=slot["id"],
@@ -200,27 +208,31 @@ class AppointmentGraph:
         )
         
         booking = json.loads(result)
-        state.booking = booking
         
         return {"booking": booking}
     
-    async def send_confirmation(self, state: AgentState) -> Dict[str, Any]:
+    def send_confirmation(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Send booking confirmation"""
-        if not state.booking:
-            return state
+        booking = state.get("booking")
+        if not booking:
+            return {}
         
         # In production, would send SMS/email here
-        state.messages.append(Message(
+        messages = state.get("messages", [])
+        messages.append(Message(
             role=MessageRole.ASSISTANT,
-            content=f"Booking confirmed! Confirmation code: {state.booking.get('confirmation_code', 'N/A')}"
+            content=f"Booking confirmed! Confirmation code: {booking.get('confirmation_code', 'N/A')}"
         ))
         
-        return {"messages": state.messages}
+        return {"messages": messages}
     
-    async def generate_response(self, state: AgentState) -> Dict[str, Any]:
+    def generate_response(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Generate final response to user"""
-        if state.booking:
-            booking = state.booking
+        booking = state.get("booking")
+        search_results = state.get("search_results", [])
+        messages = state.get("messages", [])
+        
+        if booking:
             response = f"""✅ Your appointment is confirmed!
 
 📍 {booking.get('provider_name', 'Provider')}
@@ -230,8 +242,8 @@ class AppointmentGraph:
 
 You'll receive a confirmation SMS shortly."""
         
-        elif state.search_results:
-            providers = state.search_results[:3]
+        elif search_results:
+            providers = search_results[:3]
             response = "I found these options for you:\n\n"
             for i, p in enumerate(providers, 1):
                 response += f"{i}. {p['name']} - {p['address']}\n"
@@ -241,22 +253,29 @@ You'll receive a confirmation SMS shortly."""
         else:
             response = "I can help you book appointments. Try saying 'Book me a haircut tomorrow at 2pm'"
         
-        state.messages.append(Message(
+        messages.append(Message(
             role=MessageRole.ASSISTANT,
             content=response
         ))
         
-        return {"messages": state.messages}
+        return {"messages": messages}
     
-    async def run(self, message: str, user_id: str, session_id: str) -> str:
+    def run(self, message: str, user_id: str, session_id: str) -> Dict[str, Any]:
         """Run the graph with a user message"""
-        initial_state = AgentState(
-            messages=[Message(role=MessageRole.USER, content=message)],
-            user_id=user_id,
-            session_id=session_id
-        )
+        initial_state = {
+            "messages": [Message(role=MessageRole.USER, content=message)],
+            "user_id": user_id,
+            "session_id": session_id,
+            "current_intent": None,
+            "extracted_entities": {},
+            "search_results": [],
+            "selected_provider": None,
+            "available_slots": [],
+            "booking": None
+        }
         
-        result = await self.app.ainvoke(initial_state)
+        result = self.app.invoke(initial_state)
+        return result
         
         # Return the last assistant message
         assistant_messages = [m for m in result["messages"] if m.role == MessageRole.ASSISTANT]

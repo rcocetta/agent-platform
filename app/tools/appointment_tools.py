@@ -1,8 +1,8 @@
 """
 LangChain tools for appointment booking
 """
-from langchain.tools import BaseTool
-from langchain.pydantic_v1 import BaseModel as LangChainBaseModel, Field
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel as LangChainBaseModel, Field
 from typing import Optional, List, Type
 from datetime import datetime, timedelta
 import json
@@ -16,8 +16,8 @@ class SearchProvidersInput(LangChainBaseModel):
     date: Optional[str] = Field(default=None, description="Preferred date")
 
 class SearchProvidersTool(BaseTool):
-    name = "search_providers"
-    description = "Search for service providers in a location"
+    name: str = "search_providers"
+    description: str = "Search for service providers in a location"
     args_schema: Type[LangChainBaseModel] = SearchProvidersInput
     
     def _run(self, service_type: str, location: str = "Antibes", date: Optional[str] = None) -> str:
@@ -92,8 +92,8 @@ class GetAvailabilityInput(LangChainBaseModel):
     date: str = Field(description="Date to check availability (YYYY-MM-DD)")
 
 class GetAvailabilityTool(BaseTool):
-    name = "get_availability"
-    description = "Get available time slots for a provider and service"
+    name: str = "get_availability"
+    description: str = "Get available time slots for a provider and service"
     args_schema: Type[LangChainBaseModel] = GetAvailabilityInput
     
     def _run(self, provider_id: str, service_id: str, date: str) -> str:
@@ -133,8 +133,8 @@ class CreateBookingInput(LangChainBaseModel):
     customer_phone: str = Field(description="Customer phone")
 
 class CreateBookingTool(BaseTool):
-    name = "create_booking"
-    description = "Create a booking for a service"
+    name: str = "create_booking"
+    description: str = "Create a booking for a service"
     args_schema: Type[LangChainBaseModel] = CreateBookingInput
     
     def _run(
@@ -180,8 +180,8 @@ class CheckCalendarInput(LangChainBaseModel):
     user_id: str = Field(description="User ID")
 
 class CheckCalendarTool(BaseTool):
-    name = "check_calendar"
-    description = "Check user's calendar for availability"
+    name: str = "check_calendar"
+    description: str = "Check user's calendar for availability"
     args_schema: Type[LangChainBaseModel] = CheckCalendarInput
     
     def _run(self, start_time: str, end_time: str, user_id: str) -> str:
