@@ -1,0 +1,37 @@
+# Core dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# LangChain ecosystem
+langchain==0.1.0
+langgraph==0.0.26
+langchain-anthropic==0.1.1
+langchain-openai==0.0.5
+langchain-community==0.0.10
+
+# Database and caching
+sqlalchemy==2.0.23
+redis==5.0.1
+asyncpg==0.29.0
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+httpx==0.25.2
+
+# Integrations
+twilio==8.10.0
+google-auth==2.25.2
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.111.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+aiofiles==23.2.1
+tenacity==8.2.3
