@@ -10,6 +10,8 @@ import json
 from app.core.schemas import AgentState, Message, MessageRole
 from app.core.config import settings
 from app.tools.appointment_tools import ALL_TOOLS
+from app.mocks.appointment_mocks import get_mock_customer_data
+from app.graphs.appointment_constants import get_booking_confirmation_template, DEFAULT_HELP_MESSAGE
 
 class AppointmentGraph:
     def __init__(self):
@@ -198,13 +200,14 @@ class AppointmentGraph:
         
         # Use booking tool
         booking_tool = self.tools[2]  # CreateBookingTool
+        mock_customer = get_mock_customer_data()
         result = booking_tool._run(
             provider_id=provider["id"],
             service_id=service["id"],
             slot_id=slot["id"],
-            customer_name="User Name",  # Would come from user profile
-            customer_email="user@example.com",
-            customer_phone="+33600000000"
+            customer_name=mock_customer["name"],
+            customer_email=mock_customer["email"],
+            customer_phone=mock_customer["phone"]
         )
         
         booking = json.loads(result)
@@ -233,14 +236,7 @@ class AppointmentGraph:
         messages = state.get("messages", [])
         
         if booking:
-            response = f"""✅ Your appointment is confirmed!
-
-📍 {booking.get('provider_name', 'Provider')}
-💇 {booking.get('service_name', 'Service')}
-📅 {booking.get('start_time', 'Time')}
-🎫 Confirmation: {booking.get('confirmation_code', 'N/A')}
-
-You'll receive a confirmation SMS shortly."""
+            response = get_booking_confirmation_template(booking)
         
         elif search_results:
             providers = search_results[:3]
@@ -251,7 +247,7 @@ You'll receive a confirmation SMS shortly."""
                     response += f"   Services: {', '.join(s['name'] for s in p['services'][:2])}\n"
         
         else:
-            response = "I can help you book appointments. Try saying 'Book me a haircut tomorrow at 2pm'"
+            response = DEFAULT_HELP_MESSAGE
         
         messages.append(Message(
             role=MessageRole.ASSISTANT,
